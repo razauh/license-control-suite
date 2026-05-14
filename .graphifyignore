@@ -1,0 +1,7 @@
+# Graphify scope control for unified crate analysis.
+# Keep all source by default; exclude heavy/generated/runtime output only.
+target/
+logs/
+node_modules/
+dist/
+graphify-out/
