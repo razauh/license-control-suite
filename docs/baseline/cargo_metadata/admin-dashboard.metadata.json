@@ -1,6 +1,0 @@
-{
-  "_status": "PENDING_USER_RUN",
-  "_task": "TC-02",
-  "_command": "cd /home/pc/Downloads/inf/plan/admin-dashboard && cargo metadata --no-deps --format-version 1",
-  "_note": "Command not run by agent due command restriction."
-}
