@@ -37,3 +37,26 @@ fn all_known_tauri_command_names_present() {
     assert!(names.contains(&"clear_local_session"));
     assert!(names.contains(&"get_auth_state"));
 }
+
+#[test]
+fn baseline_graphify_summary_is_recorded_when_available() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let graph_report = root.join("graphify-out/GRAPH_REPORT.md");
+    let baseline_note = root.join("docs/baseline/desktop_plugin_readiness_baseline.md");
+
+    assert!(baseline_note.exists());
+
+    let note = fs::read_to_string(&baseline_note)
+        .expect("desktop plugin readiness baseline note should be readable");
+
+    if graph_report.exists() {
+        assert!(note.contains("2026-05-14"));
+        assert!(note.contains("550 nodes"));
+        assert!(note.contains("942 edges"));
+        assert!(note.contains("25 communities"));
+        assert!(note.contains("session_state.json"));
+        assert!(note.contains("reset_status.json"));
+    } else {
+        assert!(note.contains("not found during baseline locking"));
+    }
+}

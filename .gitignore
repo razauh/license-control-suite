@@ -7,6 +7,8 @@ log/
 
 graphify-out/
 **/graphify-out/
+docs/
+**/docs/
 
 .agents/
 .codex/

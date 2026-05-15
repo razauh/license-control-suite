@@ -1,19 +1,20 @@
-use license_control_suite::modules::user_reg::auth_licensing_tauri::{
-    command_handler, register_auth_commands,
-};
+#[cfg(feature = "desktop-tauri")]
+use license_control_suite::desktop::tauri::auth_command_handler;
 
+#[cfg(feature = "desktop-tauri")]
 pub fn app_invoke_handler<R>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
 where
     R: tauri::Runtime,
 {
-    command_handler::<R>()
+    auth_command_handler::<R>()
 }
 
+#[cfg(feature = "desktop-tauri")]
 pub fn configure_app_builder<R>(builder: tauri::Builder<R>) -> tauri::Builder<R>
 where
     R: tauri::Runtime,
 {
-    register_auth_commands(builder)
+    builder.invoke_handler(app_invoke_handler::<R>())
 }
 
 fn main() {

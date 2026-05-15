@@ -3,7 +3,10 @@ use license_control_suite::modules::user_reg::auth_licensing_core::{
     SessionState,
 };
 use license_control_suite::modules::user_reg::auth_licensing_tauri::{
-    activate_license_with_service, AuthCommandError, AuthStateView, DeviceResetView,
+    activate_license_with_service, clear_local_session_with_service, get_auth_state_with_service,
+    get_device_reset_status_with_service, request_device_reset_with_service,
+    validate_session_with_service, AuthCommandError, AuthStateView, DeviceResetInput,
+    DeviceResetView,
 };
 use license_control_suite::modules::user_reg::auth_licensing_core::test_support::{FakeWorkerClient, TestService};
 use license_control_suite::modules::user_reg::auth_licensing_core::{
@@ -75,4 +78,59 @@ fn reset_view_shape_has_expected_fields() {
     assert_eq!(value["status"], "approved");
     assert!(value.get("message").is_some());
     assert!(value.get("auth_state").is_some());
+}
+
+#[tokio::test]
+async fn service_helper_functions_remain_behaviorally_equivalent() {
+    let request_id = ResetRequestId::new("reset-1").unwrap();
+    let harness = TestService::new(
+        FakeWorkerClient::new()
+            .with_activation(Ok(outcome()))
+            .with_validation(Ok(
+                license_control_suite::modules::user_reg::auth_licensing_core::ValidationOutcome::Active {
+                    masked_license_key: MaskedLicenseKey::new("••••-1234").unwrap(),
+                    bound_device: outcome().bound_device.clone(),
+                    token_expires_at_ms: 200,
+                },
+            ))
+            .with_reset_request(Ok(DeviceResetStatus::Pending {
+                request_id: request_id.clone(),
+                created_at_ms: 10,
+            }))
+            .with_reset_status(Ok(DeviceResetStatus::Approved {
+                request_id,
+                decided_at_ms: 20,
+            })),
+    );
+
+    let activated = activate_license_with_service("LICENSE-1234".into(), &harness.service)
+        .await
+        .unwrap();
+    assert!(matches!(activated.auth_state, AuthStateView::Licensed { .. }));
+
+    let validated = validate_session_with_service(&harness.service).await.unwrap();
+    assert!(matches!(validated.auth_state, AuthStateView::Licensed { .. }));
+
+    let requested = request_device_reset_with_service(
+        DeviceResetInput {
+            purchaser_email: "buyer@example.com".into(),
+            receipt_reference: Some("receipt".into()),
+        },
+        &harness.service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(requested.status, "pending");
+
+    let polled = get_device_reset_status_with_service("reset-1".into(), &harness.service)
+        .await
+        .unwrap();
+    assert_eq!(polled.status, "approved");
+
+    let state = get_auth_state_with_service(&harness.service).await.unwrap();
+    assert!(matches!(state, AuthStateView::ResetApprovedUnbound { .. }));
+
+    clear_local_session_with_service(&harness.service).await.unwrap();
+    let cleared = get_auth_state_with_service(&harness.service).await.unwrap();
+    assert!(matches!(cleared, AuthStateView::Unauthenticated));
 }

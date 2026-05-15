@@ -199,7 +199,12 @@ pub fn command_names() -> &'static [&'static str] {
     ]
 }
 
-pub fn command_handler<R>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
+/// Returns an invoke handler for the auth command set only.
+///
+/// Host apps that need a single final `invoke_handler` should prefer using the
+/// public command functions directly inside their own `tauri::generate_handler!`
+/// invocation so they can compose crate commands with app-specific commands.
+pub fn auth_command_handler<R>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
 where
     R: tauri::Runtime,
 {
@@ -213,11 +218,22 @@ where
     ]
 }
 
+/// Compatibility alias for the auth-only command invoke handler.
+pub fn command_handler<R>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
+where
+    R: tauri::Runtime,
+{
+    auth_command_handler::<R>()
+}
+
+/// Convenience helper for apps that only want to register this crate's auth
+/// commands. Host apps with additional commands should compose their own final
+/// invoke handler with the public command functions instead.
 pub fn register_auth_commands<R>(builder: tauri::Builder<R>) -> tauri::Builder<R>
 where
     R: tauri::Runtime,
 {
-    builder.invoke_handler(command_handler::<R>())
+    builder.invoke_handler(auth_command_handler::<R>())
 }
 
 async fn reset_view(

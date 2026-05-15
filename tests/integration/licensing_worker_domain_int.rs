@@ -107,3 +107,35 @@ fn audit_events_do_not_store_raw_access_tokens() {
     let audit_json = serde_json::to_string(&app.store.audit_events()).unwrap();
     assert!(!audit_json.contains(token.expose_secret()));
 }
+
+#[test]
+fn reference_worker_behavior_remains_current() {
+    let app = app();
+    let activated = app.activate(activation_request("public")).unwrap();
+    assert!(matches!(
+        app.validate_session(activated.access_token.clone()).unwrap(),
+        ValidationOutcome::Active { .. }
+    ));
+
+    let pending = app.request_device_reset(reset_request()).unwrap();
+    assert!(matches!(pending, DeviceResetStatus::Pending { .. }));
+
+    let approved = app
+        .decide_reset(
+            "admin-secret",
+            pending.request_id().clone(),
+            AdminResetDecision::Approve,
+            30,
+        )
+        .unwrap();
+    assert!(matches!(approved, DeviceResetStatus::Approved { .. }));
+    assert!(matches!(
+        app.validate_session(activated.access_token).unwrap(),
+        ValidationOutcome::ReauthRequired
+    ));
+
+    let audit_json = serde_json::to_string(&app.store.audit_events()).unwrap();
+    assert!(audit_json.contains("activation_success"));
+    assert!(audit_json.contains("reset_request_created"));
+    assert!(audit_json.contains("reset_approved"));
+}

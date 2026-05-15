@@ -85,6 +85,54 @@ async fn approved_reset_clears_credentials_and_marks_unbound() {
 }
 
 #[tokio::test]
+async fn baseline_auth_service_activation_validation_reset_flow_remains_current() {
+    let request_id = ResetRequestId::new("reset-1").unwrap();
+    let worker = FakeWorkerClient::new()
+        .with_activation(Ok(outcome()))
+        .with_validation(Ok(ValidationOutcome::Active {
+            masked_license_key: MaskedLicenseKey::new("••••-1234").unwrap(),
+            bound_device: outcome().bound_device.clone(),
+            token_expires_at_ms: 300,
+        }))
+        .with_reset_status(Ok(DeviceResetStatus::Approved {
+            request_id: request_id.clone(),
+            decided_at_ms: 10,
+        }));
+    let harness = TestService::new(worker);
+
+    let activation = harness
+        .service
+        .activate_license(LicenseKey::new("LICENSE-1234").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(activation.masked_license_key.as_str(), "••••-1234");
+    assert!(harness.secrets.get_license_key().await.unwrap().is_some());
+    assert!(harness.secrets.get_access_token().await.unwrap().is_some());
+    assert!(harness.secrets.get_device_keypair().await.unwrap().is_some());
+    assert!(matches!(
+        harness.state.load_session_state().await.unwrap(),
+        SessionState::Licensed { .. }
+    ));
+
+    let validated = harness.service.validate_session().await.unwrap();
+    assert!(matches!(validated, SessionState::Licensed { .. }));
+
+    harness
+        .service
+        .get_device_reset_status(request_id)
+        .await
+        .unwrap();
+
+    assert!(harness.secrets.get_license_key().await.unwrap().is_none());
+    assert!(harness.secrets.get_access_token().await.unwrap().is_none());
+    assert!(harness.secrets.get_device_keypair().await.unwrap().is_some());
+    assert!(matches!(
+        harness.state.load_session_state().await.unwrap(),
+        SessionState::ResetApprovedUnbound { .. }
+    ));
+}
+
+#[tokio::test]
 async fn reset_request_sends_required_metadata_and_persists_pending() {
     let request_id = ResetRequestId::new("reset-1").unwrap();
     let status = DeviceResetStatus::Pending {

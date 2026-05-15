@@ -1,7 +1,9 @@
-//! Local-testable licensing worker domain and route handlers.
+//! Local/native reference backend for licensing flows.
 //!
-//! This package models the Cloudflare Worker behavior without requiring live
-//! Cloudflare, Gumroad, or npm tooling in default tests.
+//! This module is useful for local testing and route-contract reasoning. It is
+//! not a verified Cloudflare runtime target, does not implement Gumroad
+//! provider integration, and does not provide durable production backend
+//! storage.
 
 use crate::modules::user_reg::auth_licensing_core::{
     AccessToken, ActivationOutcome, ActivationRequest, AdminResetDecision, AuthError,

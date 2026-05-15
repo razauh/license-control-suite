@@ -10,16 +10,24 @@ path = "src/lib.rs"
 [[bin]]
 name = "license-control-suite"
 path = "src/main.rs"
+required-features = ["desktop-tauri"]
+
+[features]
+default = ["core", "desktop-tauri", "desktop-persistence", "reference-worker"]
+core = []
+desktop-tauri = ["core", "dep:tauri", "dep:reqwest"]
+desktop-persistence = ["core", "dep:keyring"]
+reference-worker = ["core"]
 
 [dependencies]
 async-trait = "0.1"
 base64 = "0.22"
-keyring = "3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+keyring = { version = "3", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = [], optional = true }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
 

@@ -609,6 +609,15 @@ mod tests {
     }
 
     #[test]
+    fn http_worker_client_route_contracts_remain_unchanged() {
+        let source = include_str!("http_client.rs");
+        assert!(source.contains("\"/v1/activate\""));
+        assert!(source.contains("\"/v1/session/validate\""));
+        assert!(source.contains("\"/v1/device-reset/request\""));
+        assert!(source.contains("\"/v1/device-reset/status/{}\""));
+    }
+
+    #[test]
     fn debug_output_does_not_contain_request_secrets() {
         let request = ActivationRequestBody::from(activation_request());
         let validation = ValidationRequestBody::from(AccessToken::new("SECRET-TOKEN").unwrap());

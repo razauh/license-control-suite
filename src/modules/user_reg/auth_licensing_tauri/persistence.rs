@@ -5,7 +5,12 @@ use crate::modules::user_reg::auth_licensing_core::{
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(feature = "desktop-tauri")]
 use tauri::Manager;
+
+#[cfg(test)]
+const REAL_KEYRING_SMOKE_ENV: &str = "LICENSE_CONTROL_SUITE_RUN_REAL_KEYRING_SMOKE";
 
 #[derive(Clone, Default)]
 pub struct InMemorySecretStore {
@@ -53,13 +58,37 @@ impl SecretStore for InMemorySecretStore {
 #[derive(Clone)]
 pub struct AppDataStateStore {
     root: PathBuf,
+    session_filename: String,
+    reset_filename: String,
 }
 
 impl AppDataStateStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self::with_file_names(root, "session_state.json", "reset_status.json")
     }
 
+    pub fn with_namespace(root: impl Into<PathBuf>, namespace: impl AsRef<str>) -> Self {
+        let namespace = namespace.as_ref();
+        Self::with_file_names(
+            root,
+            format!("{namespace}.session_state.json"),
+            format!("{namespace}.reset_status.json"),
+        )
+    }
+
+    pub fn with_file_names(
+        root: impl Into<PathBuf>,
+        session_filename: impl Into<String>,
+        reset_filename: impl Into<String>,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            session_filename: session_filename.into(),
+            reset_filename: reset_filename.into(),
+        }
+    }
+
+    #[cfg(feature = "desktop-tauri")]
     pub fn from_app_handle<R>(app: &tauri::AppHandle<R>) -> Result<Self, AuthError>
     where
         R: tauri::Runtime,
@@ -71,12 +100,27 @@ impl AppDataStateStore {
         Ok(Self::new(root))
     }
 
-    fn session_path(&self) -> PathBuf {
-        self.root.join("session_state.json")
+    #[cfg(feature = "desktop-tauri")]
+    pub fn from_app_handle_with_namespace<R>(
+        app: &tauri::AppHandle<R>,
+        namespace: impl AsRef<str>,
+    ) -> Result<Self, AuthError>
+    where
+        R: tauri::Runtime,
+    {
+        let root = app
+            .path()
+            .app_data_dir()
+            .map_err(|err| AuthError::Storage(err.to_string()))?;
+        Ok(Self::with_namespace(root, namespace))
     }
 
-    fn reset_path(&self) -> PathBuf {
-        self.root.join("reset_status.json")
+    pub fn session_state_path(&self) -> PathBuf {
+        self.root.join(&self.session_filename)
+    }
+
+    pub fn reset_status_path(&self) -> PathBuf {
+        self.root.join(&self.reset_filename)
     }
 
     fn read_json<T: for<'de> serde::Deserialize<'de>>(path: &Path) -> Result<Option<T>, AuthError> {
@@ -100,32 +144,81 @@ impl AppDataStateStore {
 #[async_trait]
 impl LocalStateStore for AppDataStateStore {
     async fn save_session_state(&self, state: SessionState) -> Result<(), AuthError> {
-        self.write_json(&self.session_path(), &state)
+        self.write_json(&self.session_state_path(), &state)
     }
 
     async fn load_session_state(&self) -> Result<SessionState, AuthError> {
-        Ok(Self::read_json(&self.session_path())?.unwrap_or_default())
+        Ok(Self::read_json(&self.session_state_path())?.unwrap_or_default())
     }
 
     async fn save_reset_status(&self, status: DeviceResetStatus) -> Result<(), AuthError> {
-        self.write_json(&self.reset_path(), &status)
+        self.write_json(&self.reset_status_path(), &status)
     }
 
     async fn load_reset_status(&self) -> Result<Option<DeviceResetStatus>, AuthError> {
-        Self::read_json(&self.reset_path())
+        Self::read_json(&self.reset_status_path())
     }
 }
 
 #[derive(Clone, Default)]
 pub struct KeychainSecretStore {
     service_name: String,
+    license_key_name: String,
+    access_token_name: String,
+    device_keypair_name: String,
 }
 
 impl KeychainSecretStore {
     pub fn new_for_app(service_name: impl Into<String>) -> Self {
+        Self::with_entry_names(
+            service_name,
+            "license_key",
+            "access_token",
+            "device_keypair",
+        )
+    }
+
+    pub fn with_namespace(
+        service_name: impl Into<String>,
+        namespace: impl AsRef<str>,
+    ) -> Self {
+        let namespace = namespace.as_ref();
+        Self::with_entry_names(
+            service_name,
+            format!("{namespace}.license_key"),
+            format!("{namespace}.access_token"),
+            format!("{namespace}.device_keypair"),
+        )
+    }
+
+    pub fn with_entry_names(
+        service_name: impl Into<String>,
+        license_key_name: impl Into<String>,
+        access_token_name: impl Into<String>,
+        device_keypair_name: impl Into<String>,
+    ) -> Self {
         Self {
             service_name: service_name.into(),
+            license_key_name: license_key_name.into(),
+            access_token_name: access_token_name.into(),
+            device_keypair_name: device_keypair_name.into(),
         }
+    }
+
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+
+    pub fn license_key_entry_name(&self) -> &str {
+        &self.license_key_name
+    }
+
+    pub fn access_token_entry_name(&self) -> &str {
+        &self.access_token_name
+    }
+
+    pub fn device_keypair_entry_name(&self) -> &str {
+        &self.device_keypair_name
     }
 
     fn entry(&self, key: &str) -> Result<keyring::Entry, AuthError> {
@@ -158,29 +251,33 @@ impl KeychainSecretStore {
 #[async_trait]
 impl SecretStore for KeychainSecretStore {
     async fn put_license_key(&self, value: LicenseKey) -> Result<(), AuthError> {
-        self.set("license_key", value.expose_secret())
+        self.set(&self.license_key_name, value.expose_secret())
     }
 
     async fn get_license_key(&self) -> Result<Option<LicenseKey>, AuthError> {
-        self.get("license_key")?.map(LicenseKey::new).transpose()
+        self.get(&self.license_key_name)?
+            .map(LicenseKey::new)
+            .transpose()
     }
 
     async fn put_access_token(&self, value: AccessToken) -> Result<(), AuthError> {
-        self.set("access_token", value.expose_secret())
+        self.set(&self.access_token_name, value.expose_secret())
     }
 
     async fn get_access_token(&self) -> Result<Option<AccessToken>, AuthError> {
-        self.get("access_token")?.map(AccessToken::new).transpose()
+        self.get(&self.access_token_name)?
+            .map(AccessToken::new)
+            .transpose()
     }
 
     async fn put_device_keypair(&self, value: DeviceKeyPair) -> Result<(), AuthError> {
         let json = serde_json::to_string(&value)
             .map_err(|err| AuthError::Serialization(err.to_string()))?;
-        self.set("device_keypair", &json)
+        self.set(&self.device_keypair_name, &json)
     }
 
     async fn get_device_keypair(&self) -> Result<Option<DeviceKeyPair>, AuthError> {
-        self.get("device_keypair")?
+        self.get(&self.device_keypair_name)?
             .map(|json| {
                 serde_json::from_str(&json).map_err(|err| AuthError::Serialization(err.to_string()))
             })
@@ -188,8 +285,8 @@ impl SecretStore for KeychainSecretStore {
     }
 
     async fn clear_session_secrets(&self) -> Result<(), AuthError> {
-        self.delete("license_key")?;
-        self.delete("access_token")?;
+        self.delete(&self.license_key_name)?;
+        self.delete(&self.access_token_name)?;
         Ok(())
     }
 }
@@ -198,6 +295,32 @@ impl SecretStore for KeychainSecretStore {
 mod tests {
     use super::*;
     use crate::modules::user_reg::auth_licensing_core::{DevicePublicKey, MaskedLicenseKey, ResetRequestId};
+
+    fn real_keyring_smoke_is_enabled_value(value: Option<&str>) -> bool {
+        matches!(
+            value,
+            Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+        )
+    }
+
+    fn real_keyring_smoke_is_enabled() -> bool {
+        real_keyring_smoke_is_enabled_value(std::env::var(REAL_KEYRING_SMOKE_ENV).ok().as_deref())
+    }
+
+    fn disposable_keyring_test_namespace() -> String {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_millis();
+        format!("license-control-suite.keyring-smoke.{stamp}.{}", std::process::id())
+    }
+
+    fn disposable_keyring_test_store() -> KeychainSecretStore {
+        KeychainSecretStore::with_namespace(
+            "license-control-suite.real-keyring-smoke",
+            disposable_keyring_test_namespace(),
+        )
+    }
 
     #[tokio::test]
     async fn app_data_store_missing_state_defaults_to_unauthenticated() {
@@ -255,15 +378,36 @@ mod tests {
         assert!(store.get_device_keypair().await.unwrap().is_some());
     }
 
+    #[test]
+    fn real_keyring_round_trip_runs_only_when_explicitly_enabled() {
+        assert!(!real_keyring_smoke_is_enabled_value(None));
+        assert!(!real_keyring_smoke_is_enabled_value(Some("0")));
+        assert!(real_keyring_smoke_is_enabled_value(Some("1")));
+    }
+
+    #[test]
+    fn real_keyring_test_uses_disposable_namespace() {
+        let store = disposable_keyring_test_store();
+        assert_eq!(store.service_name(), "license-control-suite.real-keyring-smoke");
+        assert!(store.license_key_entry_name().starts_with("license-control-suite.keyring-smoke."));
+        assert!(store.access_token_entry_name().contains(".access_token"));
+        assert!(store.device_keypair_entry_name().contains(".device_keypair"));
+    }
+
     #[tokio::test]
-    #[ignore = "manual smoke test; requires an available OS keychain backend"]
-    async fn manual_keychain_round_trip() {
-        let store = KeychainSecretStore::new_for_app("auth-licensing-test");
+    #[ignore = "opt-in real keyring smoke; set LICENSE_CONTROL_SUITE_RUN_REAL_KEYRING_SMOKE=1 and run explicitly"]
+    async fn real_keychain_round_trip() {
+        if !real_keyring_smoke_is_enabled() {
+            return;
+        }
+
+        let store = disposable_keyring_test_store();
         store
             .put_license_key(LicenseKey::new("key").unwrap())
             .await
             .unwrap();
         assert!(store.get_license_key().await.unwrap().is_some());
+        store.clear_session_secrets().await.unwrap();
     }
 
     #[tokio::test]

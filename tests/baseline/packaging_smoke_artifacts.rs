@@ -14,5 +14,6 @@ fn tauri_smoke_script_has_blocked_signal_for_missing_shell() {
     let content = fs::read_to_string(root.join("scripts/tauri_smoke.sh"))
         .expect("tauri_smoke.sh should be readable");
     assert!(content.contains("BLOCKED"));
-    assert!(content.contains("src-tauri"));
+    assert!(content.contains("examples/client-desktop-shell/src-tauri"));
+    assert!(content.contains("examples/admin-desktop-shell/src-tauri"));
 }
