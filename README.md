@@ -9,9 +9,60 @@ Unified Rust crate that merges four legacy domains into a single module-structur
 
 This repository is currently **crate-first** (library + binary skeleton) and uses minimal example Tauri desktop shells under `examples/` rather than a root `src-tauri` product shell.
 
-## Consumer Onboarding
+## Use In Your Project
+
+Use the crate through the curated public surfaces, not deep internal modules.
+
+Core-only consumer:
+
+```toml
+[dependencies]
+license-control-suite = { path = "../license-control-suite", default-features = false, features = ["core"] }
+```
+
+```rust
+use license_control_suite::core::AuthService;
+```
+
+Desktop Tauri host consumer:
+
+```toml
+[dependencies]
+license-control-suite = { path = "../license-control-suite", features = ["core", "desktop-tauri", "desktop-persistence"] }
+```
+
+```rust
+use license_control_suite::desktop::tauri::auth_command_handler;
+
+fn build_handler<R>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
+where
+    R: tauri::Runtime,
+{
+    auth_command_handler::<R>()
+}
+```
+
+Preferred imports for normal consumers:
+
+- `license_control_suite::core`
+- `license_control_suite::desktop::tauri`
+- `license_control_suite::desktop::persistence`
+- `license_control_suite::desktop::admin`
+
+Validation layers for real adoption:
+
+- internal crate verification: `bash scripts/run_ci_sequence_logged.sh verify`
+- downstream dependency verification: `bash scripts/run_ci_sequence_logged.sh downstream-consumers`
+- full logged local sequence: `bash scripts/run_ci_sequence_logged.sh all`
+
+## Consumer Docs
 
 The current onboarding path is documented in [docs/consumer_onboarding.md](docs/consumer_onboarding.md) and mirrored by compile-oriented examples under `examples/`.
+Separate downstream dependency harnesses live under `fixtures/downstream_consumers/` and are documented in [docs/downstream_consumer_validation.md](docs/downstream_consumer_validation.md).
+That downstream layer now covers path-based, git-based, and packaged-consumer validation separately from the crate's own components.
+Release gating for first external integration or publication is documented in [docs/release_readiness_checklist.md](docs/release_readiness_checklist.md).
+The recommended CI sequencing for those gates is documented in [docs/ci_job_sequence.md](docs/ci_job_sequence.md).
+The unified logged runner for that sequence is `bash scripts/run_ci_sequence_logged.sh all`.
 
 Primary example entry points:
 
@@ -108,17 +159,6 @@ The current desktop-only scope does not include:
 - hosted SaaS backend
 
 Those remain unsupported or deferred. This repository does not currently provide a browser frontend, mobile app, hosted backend, or production provider/runtime integration outside the local/native reference worker.
-
-## Graphify Snapshot
-
-Latest Graphify run (`graphify-out/GRAPH_REPORT.md`) reported:
-
-- **550 nodes**
-- **942 edges**
-- **25 communities**
-- extraction mix: **75% EXTRACTED**, **25% INFERRED**
-
-This README is aligned with that graph and the current source tree.
 
 ## Repository Structure
 
@@ -355,9 +395,9 @@ flowchart LR
 
 Primary orchestrator:
 
-- `scripts/run_full_verification_logged.sh`
+- `scripts/run_ci_sequence_logged.sh`
 
-It executes ordered checks and writes per-command logs under `logs/verification_<timestamp>/`.
+It executes ordered checks and writes per-command logs under `logs/ci_<mode>_<timestamp>/`.
 
 ```mermaid
 flowchart TD
@@ -385,7 +425,7 @@ cargo test
 ### Full logged verification
 
 ```bash
-bash scripts/run_full_verification_logged.sh
+bash scripts/run_ci_sequence_logged.sh all
 ```
 
 ## Current Tauri Shell Status
@@ -407,9 +447,3 @@ Implications:
 - `docs/migration/handoff_summary.md`
 - `../docs/unified_merge_unresolved_issues.md`
 - `../docs/unified_merge_verification_runbook.md`
-
-## Graph Artifacts
-
-- `graphify-out/graph.json`
-- `graphify-out/graph.html`
-- `graphify-out/GRAPH_REPORT.md`
